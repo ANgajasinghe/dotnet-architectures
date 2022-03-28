@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.OData;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OData.Edm;
 using Microsoft.OData.ModelBuilder;
@@ -31,9 +32,9 @@ builder.Services.AddControllers(options => options.Filters.Add<ActionLogFilter>(
         });
 
 
-builder.Services.AddSqlServer<AppDbContext>("Data Source=DESKTOP-TERE1H0\\SQLEXPRESS;Initial Catalog=odata-test;User Id=sa;Password=#compaq123;",
+builder.Services.AddSqlServer<AppDbContext>(
+    "Data Source=DESKTOP-TERE1H0\\SQLEXPRESS;Initial Catalog=odata-test;User Id=sa;Password=#compaq123;",
     opt => { });
-
 
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -59,18 +60,48 @@ app.MapControllers();
 app.Run();
 
 
-
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options)
         : base(options)
     {
-      
     }
 
     public DbSet<User> Users { get; set; }
     public DbSet<UserAddress> UserAddresses { get; set; }
+
     
+    
+
+    public async Task<int> ExecuteSqAsync<T>(string spName, T parameters)
+    {
+        var data = GetParams(parameters);
+        return await Database.ExecuteSqlRawAsync("EXEC " + spName.Trim() +" "+data.Item2, data.Item1);
+    }
+
+    private Tuple<List<SqlParameter>, string> GetParams(object parameters)
+    {
+        var parms = new List<SqlParameter>();
+        var paramString = new List<string>();
+
+        var props = parameters.GetType().GetProperties();
+
+        foreach (var prop in props)
+        {
+            if(prop.Name == "Id")
+                continue;
+            
+            parms.Add(new()
+            {
+                ParameterName = $"@{prop.Name}",
+                Value = prop.GetValue(parameters)
+            });
+
+            paramString.Add($"@{prop.Name}");
+        }
+
+        return new Tuple<List<SqlParameter>, string>(parms, string.Join(",", paramString));
+    }
 }
 
 public class User
@@ -91,6 +122,8 @@ public class UserAddress
     public string State { get; set; }
     public string Country { get; set; }
     public string ZipCode { get; set; }
+    
+    public int UserId { get; set; }
 }
 
 public class EdmModelBuilder
@@ -100,8 +133,8 @@ public class EdmModelBuilder
         var builder = new ODataConventionModelBuilder();
         builder.EntitySet<User>("user");
         builder.EntitySet<UserAddress>("user-address");
-        
-        
+
+
         builder.EnableLowerCamelCase();
         return builder.GetEdmModel();
     }
